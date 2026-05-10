@@ -112,6 +112,65 @@ func (rs *redisStore) loadSandboxesBySessionIDs(ctx context.Context, sessionIDs 
 	return result, nil
 }
 
+// ListAllSandboxes returns all sandboxes with optional filtering and pagination.
+// It uses SCAN to iterate through all session keys and filters in-memory.
+func (rs *redisStore) ListAllSandboxes(ctx context.Context, namespace, kind string, limit, offset int64) ([]*types.SandboxInfo, int64, error) {
+	pattern := rs.sessionPrefix + "*"
+	var allSessionIDs []string
+	var cursor uint64
+
+	for {
+		keys, nextCursor, err := rs.cli.Scan(ctx, cursor, pattern, 100).Result()
+		if err != nil {
+			return nil, 0, fmt.Errorf("ListAllSandboxes: SCAN failed: %w", err)
+		}
+
+		for _, key := range keys {
+			sessionID := strings.TrimPrefix(key, rs.sessionPrefix)
+			allSessionIDs = append(allSessionIDs, sessionID)
+		}
+
+		cursor = nextCursor
+		if cursor == 0 {
+			break
+		}
+	}
+
+	total := int64(len(allSessionIDs))
+	if total == 0 {
+		return []*types.SandboxInfo{}, 0, nil
+	}
+
+	allSandboxes, err := rs.loadSandboxesBySessionIDs(ctx, allSessionIDs)
+	if err != nil {
+		return nil, 0, fmt.Errorf("ListAllSandboxes: load sandboxes failed: %w", err)
+	}
+
+	filteredSandboxes := make([]*types.SandboxInfo, 0, len(allSandboxes))
+	for _, sandbox := range allSandboxes {
+		if namespace != "" && sandbox.SandboxNamespace != namespace {
+			continue
+		}
+		if kind != "" && sandbox.Kind != kind {
+			continue
+		}
+		filteredSandboxes = append(filteredSandboxes, sandbox)
+	}
+
+	filteredTotal := int64(len(filteredSandboxes))
+
+	if offset >= filteredTotal {
+		return []*types.SandboxInfo{}, filteredTotal, nil
+	}
+
+	end := offset + limit
+	if end > filteredTotal {
+		end = filteredTotal
+	}
+
+	return filteredSandboxes[offset:end], filteredTotal, nil
+}
+
 func (rs *redisStore) Ping(ctx context.Context) error {
 	resp, err := rs.cli.Ping(ctx).Result()
 	if err != nil {

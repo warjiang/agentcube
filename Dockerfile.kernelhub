@@ -1,0 +1,15 @@
+FROM python:3.11-slim
+
+RUN apt-get update && apt-get install -y \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY pkg/kernelhub/kernel.py /usr/local/bin/agentcube.kernelhub
+RUN chmod +x /usr/local/bin/agentcube.kernelhub
+
+ENV PATH="/usr/local/bin:${PATH}"
+
+CMD ["python3", "-m", "agentcube.kernelhub"]

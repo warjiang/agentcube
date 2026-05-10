@@ -28,6 +28,8 @@ type Store interface {
 	Ping(ctx context.Context) error
 	// GetSandboxBySessionID get the sandbox by session ID
 	GetSandboxBySessionID(ctx context.Context, sessionID string) (*types.SandboxInfo, error)
+	// ListAllSandboxes returns all sandboxes with optional filtering and pagination
+	ListAllSandboxes(ctx context.Context, namespace, kind string, limit, offset int64) ([]*types.SandboxInfo, int64, error)
 	// StoreSandbox store sandbox into storage
 	StoreSandbox(ctx context.Context, sandboxStore *types.SandboxInfo) error
 	// UpdateSandbox update sandbox of storage
