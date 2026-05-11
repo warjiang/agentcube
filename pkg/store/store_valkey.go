@@ -327,3 +327,62 @@ func (vs *valkeyStore) UpdateSessionLastActivity(ctx context.Context, sessionID 
 	}
 	return nil
 }
+
+// ListAllSandboxes returns all sandboxes with optional filtering and pagination.
+// It uses SCAN to iterate through all session keys and filters in-memory.
+func (vs *valkeyStore) ListAllSandboxes(ctx context.Context, namespace, kind string, limit, offset int64) ([]*types.SandboxInfo, int64, error) {
+	pattern := vs.sessionPrefix + "*"
+	var allSessionIDs []string
+	var cursor uint64
+
+	for {
+		scanResult, err := vs.cli.Do(ctx, vs.cli.B().Scan().Cursor(cursor).Match(pattern).Count(100).Build()).AsScanResult()
+		if err != nil {
+			return nil, 0, fmt.Errorf("ListAllSandboxes: SCAN failed: %w", err)
+		}
+
+		for _, key := range scanResult.Elements {
+			sessionID := strings.TrimPrefix(key, vs.sessionPrefix)
+			allSessionIDs = append(allSessionIDs, sessionID)
+		}
+
+		cursor = scanResult.Cursor
+		if cursor == 0 {
+			break
+		}
+	}
+
+	total := int64(len(allSessionIDs))
+	if total == 0 {
+		return []*types.SandboxInfo{}, 0, nil
+	}
+
+	allSandboxes, err := vs.loadSandboxesBySessionIDs(ctx, allSessionIDs)
+	if err != nil {
+		return nil, 0, fmt.Errorf("ListAllSandboxes: load sandboxes failed: %w", err)
+	}
+
+	filteredSandboxes := make([]*types.SandboxInfo, 0, len(allSandboxes))
+	for _, sandbox := range allSandboxes {
+		if namespace != "" && sandbox.SandboxNamespace != namespace {
+			continue
+		}
+		if kind != "" && sandbox.Kind != kind {
+			continue
+		}
+		filteredSandboxes = append(filteredSandboxes, sandbox)
+	}
+
+	filteredTotal := int64(len(filteredSandboxes))
+
+	if offset >= filteredTotal {
+		return []*types.SandboxInfo{}, filteredTotal, nil
+	}
+
+	end := offset + limit
+	if end > filteredTotal {
+		end = filteredTotal
+	}
+
+	return filteredSandboxes[offset:end], filteredTotal, nil
+}

@@ -367,3 +367,69 @@ func (s *Server) handleDeleteSandbox(c *gin.Context) {
 		"message": "Sandbox deleted successfully",
 	})
 }
+
+type ListSandboxesResponse struct {
+	Total int64                `json:"total"`
+	Items []*types.SandboxInfo `json:"items"`
+}
+
+func (s *Server) handleListSandboxes(c *gin.Context) {
+	namespace := c.Query("namespace")
+	kind := c.Query("kind")
+	limitStr := c.DefaultQuery("limit", "100")
+	offsetStr := c.DefaultQuery("offset", "0")
+
+	limit := int64(100)
+	offset := int64(0)
+
+	if _, err := fmt.Sscanf(limitStr, "%d", &limit); err != nil || limit <= 0 {
+		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
+	}
+
+	if _, err := fmt.Sscanf(offsetStr, "%d", &offset); err != nil || offset < 0 {
+		offset = 0
+	}
+
+	if kind != "" && kind != types.AgentRuntimeKind && kind != types.CodeInterpreterKind {
+		respondError(c, http.StatusBadRequest, "invalid kind: must be AgentRuntime or CodeInterpreter")
+		return
+	}
+
+	sandboxes, total, err := s.storeClient.ListAllSandboxes(c.Request.Context(), namespace, kind, limit, offset)
+	if err != nil {
+		klog.Errorf("list sandboxes failed: %v", err)
+		respondError(c, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	respondJSON(c, http.StatusOK, ListSandboxesResponse{
+		Total: total,
+		Items: sandboxes,
+	})
+}
+
+func (s *Server) handleGetSandbox(c *gin.Context) {
+	sandboxId := c.Param("sandboxId")
+
+	searchNamespace := c.Query("namespace")
+	searchKind := c.Query("kind")
+
+	sandboxes, _, err := s.storeClient.ListAllSandboxes(c.Request.Context(), searchNamespace, searchKind, 500, 0)
+	if err != nil {
+		klog.Errorf("list sandboxes for get failed: %v", err)
+		respondError(c, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
+	for _, sandbox := range sandboxes {
+		if sandbox.SandboxID == sandboxId {
+			respondJSON(c, http.StatusOK, sandbox)
+			return
+		}
+	}
+
+	respondError(c, http.StatusNotFound, fmt.Sprintf("sandbox with ID %s not found", sandboxId))
+}

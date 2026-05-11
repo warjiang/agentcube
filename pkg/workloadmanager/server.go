@@ -117,6 +117,10 @@ func (s *Server) setupRoutes() {
 	v1Group.Use(s.loggingMiddleware)
 	v1Group.Use(s.authMiddleware)
 
+	// sandbox management endpoints (for Dashboard)
+	v1Group.GET("/sandboxes", s.handleListSandboxes)
+	v1Group.GET("/sandboxes/:sandboxId", s.handleGetSandbox)
+
 	// agent runtime management endpoints
 	v1Group.POST("/agent-runtime", s.handleAgentRuntimeCreate)
 	v1Group.DELETE("/agent-runtime/sessions/:sessionId", s.handleDeleteSandbox)
